@@ -26,3 +26,16 @@
 *.exe
 *.out
 *.app
+
+# Eclipse Build Folders
+/Debug
+/Release
+
+# Eclipse Project Management
+.project
+.cproject
+
+# Image Types
+*.jpeg
+*.jpg
+*.png
