@@ -12,6 +12,39 @@
 
 #include "power-line-detection/PowerLineDetection.h"
 #include "mask-tester/MaskConsistencyChecker.h"
+#include "cpp-opt/cppOpt.h"
+
+using namespace cppOpt;
+
+cv::Mat image_src, image_truth;
+
+template <typename T>
+class MySolver : public OptSolverBase<T>
+{
+public:
+	void calculate(OptCalculation<T> &optCalculation) const
+	{
+		double p1_m = optCalculation.get_parameter("P1_M");
+		double p1_b = optCalculation.get_parameter("P1_B");
+		double p2 = optCalculation.get_parameter("P2");
+		double om = optCalculation.get_parameter("OM");
+		double tm = optCalculation.get_parameter("TM");
+
+		cv::Mat image_test;
+		PowerLineDetection(image_src, image_test, p1_m, p1_b, p2, om, tm);
+
+		MaskConsistencyChecker checker;
+		checker.SetMaskTruth(image_truth);
+		checker.SetMaskTest(image_test);
+		checker.CheckMaskConsistency();
+
+		double percent_correct = checker.GetPercentCorrect();
+
+		optCalculation.result = percent_correct;
+
+		printf("Iteration complete! Correct: %g %%\n", percent_correct);
+	}
+};
 
 int main(int argc, char** argv)
 {
@@ -29,8 +62,8 @@ int main(int argc, char** argv)
 		filename_truth = "truth.jpg";
 	}
 
-	cv::Mat image_src = cv::imread(filename_src);
-	cv::Mat image_truth = cv::imread(filename_truth);
+	image_src = cv::imread(filename_src);
+	image_truth = cv::imread(filename_truth);
 
 	if(image_src.empty())
 	{
@@ -45,31 +78,41 @@ int main(int argc, char** argv)
 	}
 
 
-	cv::Mat image_test;
-	PowerLineDetection(image_src, image_test, 0.7971, 15.9820, 200, 10.0, 1.0);
+	// Create solver
+	MySolver<double> mySolver;
 
-	MaskConsistencyChecker checker;
-	checker.SetMaskTruth(image_truth);
-	checker.SetMaskTest(image_test);
+	// Define parameters and boundaries
+	OptBoundaries<double> optBoundaries;
+	optBoundaries.add_boundary(0.0, 2.0, "P1_M");
+	optBoundaries.add_boundary(1.0, 25.0, "P1_B");
+	optBoundaries.add_boundary(1.0, 400.0, "P2");
+	optBoundaries.add_boundary(1.0, 20.0, "OM");
+	optBoundaries.add_boundary(0.0, 5.0, "TM");
 
-	if(!checker.CheckMaskSizes())
-	{
-		std::cout << "Error: Masks sizes do not match!\n";
-		return 1;
-	}
+	// Number of iterations
+	unsigned int maxCalculations = 200;
 
-	checker.CheckMaskConsistency();
+	// Goal of optimization
+	OptTarget optTarget = MAXIMIZE;
 
-	cv::Mat mask_result = checker.GetMaskResult();
+	// How fast algorithm slows down
+	double coolingFactor = 0.95;
 
-	cv::namedWindow("Mask Image");
-	cv::imshow("Mask Image", mask_result);
+	// How likely algorithm follows bad solutions at the beginning of optimization.
+	double startChance = 0.25;
 
-	std::cout << "Correct: " << checker.GetPercentCorrect()*100 << " %" << std::endl;
-	std::cout << "False Pos: " << checker.GetPercentFalsePositive()*100 << " %" << std::endl;
-	std::cout << "False Neg: " << checker.GetPercentFalseNegative()*100 << " %" << std::endl;
+	// Create optimizer
+	OptSimulatedAnnealing<double> opt(optBoundaries, maxCalculations, &mySolver, optTarget,
+										0.0, coolingFactor, startChance);
 
-	while(char(cv::waitKey(1)) != 'q'){}
+	// Enable logging of parameters and begin optimization
+	OptBase<double>::enable_logging("PARAMETERS.log", optBoundaries);
+	OptBase<double>::run_optimisations();
+
+	// Print results
+	OptCalculation<double> best = opt.get_best_calculation();
+	std::cout << best.to_string_header() << std::endl;
+	std::cout << best.to_string_values() << std::endl;
 
 	return 0;
 }
