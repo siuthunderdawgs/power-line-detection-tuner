@@ -42,7 +42,7 @@ public:
 
 		optCalculation.result = percent_correct;
 
-		printf("Iteration complete! Correct: %g %%\n", percent_correct);
+		printf("Iteration complete! Correct: %g %%\n", percent_correct*100);
 	}
 };
 
